@@ -6,23 +6,37 @@
 
 **Atenção:** o laboratório fornece credenciais e projeto temporários. Inicie-o com tempo suficiente para preparar e apresentar tudo antes de expirar. Ao reiniciar o laboratório, você pode receber outro projeto vazio. Se usar conta própria, verifique custos e permissões.
 
-## Checklist: o que fazer em cada momento
+## Ordem exata de execução — sem misturar etapas
 
-| Etapa | Momento | Por quê |
+### PARTE A — ANTES DA APRESENTAÇÃO (etapas 1 a 9)
+
+| Ordem | Ação | Comando principal |
 |---|---|---|
-| Abrir GSP768, Console e Cloud Shell | **ANTES** | Deixar o terminal pronto |
-| Conferir projeto e definir zona | **ANTES** | Evitar executar em projeto errado |
-| Criar cluster `scaling-demo` (se ainda não existe) | **ANTES** | Pode demorar vários minutos |
-| Conectar `kubectl` ao cluster | **ANTES** | Administrar o Kubernetes |
-| Habilitar autoscaling dos nós (e opcionalmente NAP) | **ANTES** | Preparar a infraestrutura |
-| Clonar GitHub e executar `01-deploy-app.sh` | **ANTES** | Deixar a aplicação e o HPA 70% prontos |
-| Verificar `kubectl get hpa` e `kubectl get nodes` | **ANTES** | Garantir que não há erros |
-| Mostrar estado inicial com `02-status.sh` | **AO VIVO** | Mostrar a capacidade antes do pico |
-| Iniciar `03-start-load.sh` | **AO VIVO** | Simular aumento de acessos |
-| Iniciar `04-start-checker.sh` (opcional) | **AO VIVO** | Verificar respostas durante o teste |
-| Mostrar HPA, Deployment e nós | **AO VIVO** | Comprovar o que escalou |
-| Parar com `05-stop-tests.sh` | **AO VIVO** | Simular fim da promoção |
-| Aguardar e consultar HPA novamente | **AO VIVO**, se houver tempo | Mostrar a redução (pode levar minutos) |
+| 1 | Abrir laboratório GSP768 e Cloud Shell | Pelo console do Google Cloud |
+| 2 | Conferir projeto | `gcloud config get-value project` |
+| 3 | Definir zona | `gcloud config set compute/zone us-central1-c` |
+| 4 | Criar cluster, se ainda não existir | `gcloud container clusters create scaling-demo --num-nodes=3 --enable-vertical-pod-autoscaling` |
+| 5 | Conectar ao cluster | `gcloud container clusters get-credentials scaling-demo --zone us-central1-c` |
+| 6 | Configurar escalonamento dos nós, perfil e, se desejado, NAP | Comandos da seção 2 |
+| 7 | Clonar GitHub e entrar na pasta | `git clone ...` e `cd modaexpress-gke` |
+| 8 | Implantar aplicação e HPA | `bash scripts/01-deploy-app.sh` |
+| 9 | Iniciar e conferir checker | `bash scripts/04-start-checker.sh` e `kubectl logs availability-checker --tail=20` |
+
+**Pare aqui.** Não execute o gerador de carga antes de começar a apresentação. Confirme que o checker mostra `OK` e que o HPA responde.
+
+### PARTE B — AO VIVO (etapas 10 a 16)
+
+| Ordem | Ação | Comando principal |
+|---|---|---|
+| 10 | Mostrar situação inicial | `bash scripts/02-status.sh` |
+| 11 | Simular promoção | `bash scripts/03-start-load.sh` |
+| 12 | Ver aumento dos Pods | `kubectl get hpa` e `kubectl get deployment php-apache` |
+| 13 | Verificar máquinas | `kubectl get nodes` |
+| 14 | Mostrar disponibilidade **antes de parar** | `kubectl logs availability-checker --tail=20` |
+| 15 | Encerrar os testes | `bash scripts/05-stop-tests.sh` |
+| 16 | Aguardar e observar redução | `kubectl get hpa` |
+
+**Nunca consulte logs do `availability-checker` depois da etapa 15:** o script de parada exclui esse Pod. O escalonamento de nós e a redução dos Pods podem não ocorrer no tempo da apresentação.
 
 **Importante:** execute **somente** a configuração de cluster do laboratório e a implantação da aplicação **do GitHub**. Não execute também a tarefa do laboratório que cria outro `php-apache`, porque os manifestos podem entrar em conflito. O laboratório é a referência para preparar o GKE; o GitHub é a fonte dos scripts da demonstração.
 
@@ -103,10 +117,10 @@ gcloud beta container clusters update scaling-demo --autoscaling-profile optimiz
 Se a demonstração também incluir **Node Auto-Provisioning**, habilite-o como no Google Skills:
 
 ```bash
-gcloud beta container clusters update scaling-demo --zone us-central1-c --enable-autoprovisioning --min-cpu 1 --min-memory 2 --max-cpu 45 --max-memory 160
+gcloud container clusters update scaling-demo --zone us-central1-c --enable-autoprovisioning --min-cpu 1 --min-memory 2 --max-cpu 45 --max-memory 160
 ```
 
-**O que faz:** autoriza o GKE a criar novos pools de nós, respeitando limites de CPU e memória do cluster. **É opcional para comprovar o HPA** e pode demorar. Use `gcloud beta` nesta etapa, pois a versão estável do comando utilizada anteriormente não reconheceu esses parâmetros. Execute tudo em uma única linha.
+**O que faz:** autoriza o GKE a criar novos pools de nós, respeitando limites de CPU e memória do cluster. **É opcional para comprovar o HPA** e pode demorar. No ensaio de 23/11, o comando **estável** `gcloud container clusters update` funcionou; o erro anterior ocorreu porque barras invertidas e espaços foram colados incorretamente na mesma linha. Execute tudo em uma única linha.
 
 Confira os nós:
 
@@ -172,7 +186,25 @@ kubectl get hpa
 
 **O que dizer:** “Configuramos o HPA para buscar uma utilização média de 70% da CPU solicitada. Quando a carga fica acima da meta, ele pode criar mais Pods.”
 
-## 5. AO VIVO: mostrar a situação antes do pico
+## 5. ANTES: iniciar e validar o verificador de disponibilidade
+
+Execute **antes de iniciar a carga**:
+
+```bash
+bash scripts/04-start-checker.sh
+```
+
+Aguarde alguns segundos e confira:
+
+```bash
+kubectl logs availability-checker --tail=20
+```
+
+**Esperado:** linhas `OK`. Se aparecer `NotFound`, confirme que o script de criação foi executado e que o Pod está no namespace `default`. Se aparecer `FALHA`, verifique se a aplicação está respondendo antes de apresentar.
+
+**Importante:** o script `05-stop-tests.sh` também apaga o checker. **Nunca consulte seus logs depois de executar o script de parada.**
+
+## 6. AO VIVO: mostrar a situação antes do pico
 
 Verifique o estado:
 
@@ -186,7 +218,7 @@ bash scripts/02-status.sh
 
 **O que dizer:** “Em um período de poucos acessos, o sistema não precisa manter tantas cópias funcionando.”
 
-## 6. AO VIVO: simular a promoção e aumentar os acessos
+## 7. AO VIVO: simular a promoção e aumentar os acessos
 
 Inicie o gerador de carga do nosso GitHub:
 
@@ -195,14 +227,6 @@ bash scripts/03-start-load.sh
 ```
 
 **O que faz:** cria um Pod `load-generator` que faz solicitações repetidas ao Service interno `php-apache`, com intervalo de aproximadamente 0,01 segundo após cada solicitação. O comando inicia o Pod; ele não precisa manter o terminal ocupado.
-
-Opcionalmente, inicie o verificador de disponibilidade:
-
-```bash
-bash scripts/04-start-checker.sh
-```
-
-**O que faz:** cria outro Pod que tenta acessar a aplicação aproximadamente a cada segundo e registra `OK` ou `FALHA` (com timeout de 2 segundos). **Esse teste não mede disponibilidade de produção nem garante ausência de falhas.**
 
 Acompanhe o HPA:
 
@@ -222,9 +246,9 @@ kubectl get deployment php-apache
 
 **O que dizer:** “Simulamos muitos clientes entrando na ModaExpress. O HPA percebeu o aumento de uso de CPU e elevou o número de Pods para atender à demanda.”
 
-> **Resultado já observado no ensaio:** a implantação chegou a `6/6` com o HPA em 70%. Na apresentação, diga o número que realmente aparecer no terminal; ele pode variar.
+> **Resultado já observado no ensaio de 23/11:** o HPA saiu de 3 e chegou a **7 Pods**; a CPU chegou a **82%/70%**. O checker registrou `OK` após ser reiniciado. Não houve comprovação de aumento dos nós ou redução final dos Pods. Na apresentação, diga o número que realmente aparecer no terminal; ele pode variar.
 
-## 7. AO VIVO: verificar se as máquinas também aumentaram
+## 8. AO VIVO: verificar se as máquinas também aumentaram
 
 ```bash
 kubectl get nodes
@@ -236,9 +260,17 @@ kubectl get nodes
 
 **Importante:** aumentar Pods **não significa obrigatoriamente** aumentar nós. Se houver capacidade sobrando, os novos Pods podem usar as máquinas existentes. Não afirme que houve escalonamento de nós sem mostrar evidência no comando ou na guia **Kubernetes Engine → Clusters → scaling-demo → Nós**.
 
-## 8. AO VIVO: simular o fim da promoção
+## 9. AO VIVO: mostrar disponibilidade e depois encerrar a promoção
 
-Encerre os testes:
+**Antes de encerrar**, mostre as respostas recentes do checker:
+
+```bash
+kubectl logs availability-checker --tail=20
+```
+
+**Esperado:** linhas `OK`. Um `OK` comprova que aquela requisição respondeu, mas não garante disponibilidade contínua.
+
+**Só depois**, encerre os testes:
 
 ```bash
 bash scripts/05-stop-tests.sh
@@ -255,16 +287,6 @@ kubectl get hpa
 **O que observar:** a CPU diminui e, após a janela de estabilização, o HPA tende a reduzir a quantidade de Pods, respeitando o mínimo de 1. A redução dos **nós** pode demorar mais e não é garantida no tempo da apresentação.
 
 **O que dizer:** “Quando a promoção acaba e o movimento diminui, o Kubernetes reduz as cópias desnecessárias, ajudando a evitar desperdício de recursos.”
-
-## 9. AO VIVO: consultar o verificador de disponibilidade (opcional)
-
-Enquanto o verificador estiver em execução:
-
-```bash
-kubectl logs availability-checker --tail=20
-```
-
-**O que faz:** exibe as 20 mensagens mais recentes do teste de disponibilidade. `OK` indica uma resposta recebida naquela tentativa; `FALHA` indica que aquela tentativa não conseguiu obter resposta no prazo.
 
 ## 10. Encerramento: fala sugerida
 
@@ -294,5 +316,7 @@ kubectl logs availability-checker --tail=20
 8. **Ao terminar em projeto próprio, exclua os recursos que não serão mais usados**, seguindo as regras da conta, para evitar cobranças futuras.
 
 ---
+
+**Validação:** este roteiro foi ajustado a partir do histórico real de execução de 23/11/2026. Não é possível garantir ausência de falhas futuras em um ambiente temporário; faça um ensaio completo antes da avaliação.
 
 **Fonte do procedimento de infraestrutura:** laboratório Google Skills GSP768, “Entendendo e combinando estratégias de escalonamento automático do GKE”. **Fonte dos scripts de aplicação:** repositório `Pedro-FB-ECO/modaexpress-gke`. O roteiro diferencia os comandos do laboratório dos scripts do projeto e não presume que os dois ambientes sejam idênticos.
